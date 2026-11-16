@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <title>TrailCam</title>
   <style>
     :root {
@@ -25,8 +29,10 @@
       flex-direction: column;
       align-items: center;
       padding: 12px;
-      padding-bottom: 24px;
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
       overflow-x: hidden;
+      -webkit-user-select: none;
+      user-select: none;
     }
     h1 {
       font-size: 1.35rem;
@@ -146,9 +152,33 @@
       max-width: 480px;
       line-height: 1.45;
     }
+
+    #installBanner {
+      display: none;
+      width: 100%;
+      max-width: 480px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    #installBanner button {
+      margin-top: 8px;
+      background: var(--accent);
+      color: #052e16;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
+  <div id="installBanner">
+    Install TrailCam for the best experience
+    <button id="installBtn">Add to Home Screen</button>
+  </div>
+
   <h1>TrailCam</h1>
   <div id="status">Ready — press Start Camera</div>
 
@@ -180,11 +210,40 @@
 
   <div id="log"></div>
   <p class="hint">
-    Must be opened via HTTPS (GitHub Pages works). Allow camera access.<br>
+    Works on iPhone & Android. Add to Home Screen for app-like experience.<br>
     Lower threshold = more sensitive. Use a private ntfy topic.
   </p>
 
   <script>
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(console.warn);
+    }
+
+    // Install prompt
+    let deferredPrompt;
+    const installBanner = document.getElementById('installBanner');
+    const installBtn = document.getElementById('installBtn');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBanner.style.display = 'block';
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') installBanner.style.display = 'none';
+      deferredPrompt = null;
+    });
+
+    // Hide banner if already installed
+    window.addEventListener('appinstalled', () => {
+      installBanner.style.display = 'none';
+    });
+
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -246,28 +305,24 @@
         return;
       }
 
-      // Secure context check
       if (!window.isSecureContext) {
-        setStatus('Must be HTTPS (or localhost)', 'alert');
-        log('Camera requires a secure context (HTTPS)');
+        setStatus('Must be HTTPS (GitHub Pages)', 'alert');
+        log('Camera requires HTTPS');
         return;
       }
 
       try {
-        const constraints = {
+        stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: 'environment' },
             width: { ideal: 640 },
             height: { ideal: 480 }
           },
           audio: false
-        };
-
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        });
         video.srcObject = stream;
         await video.play();
 
-        // Wait for real dimensions
         await new Promise(resolve => {
           if (video.videoWidth > 0) resolve();
           else video.onloadedmetadata = resolve;
@@ -336,9 +391,7 @@
 
         if (previousData) {
           const threshold = Number(thresholdInput.value) || 18;
-          const moved = detectMotion(data, previousData, threshold);
-
-          if (moved) {
+          if (detectMotion(data, previousData, threshold)) {
             const cooldownMs = (Number(cooldownInput.value) || 6) * 1000;
             if (now - lastTriggerTime > cooldownMs) {
               lastTriggerTime = now;
@@ -349,7 +402,6 @@
           }
         }
 
-        // Store a copy of the pixel data
         previousData = new Uint8ClampedArray(data);
       } catch (e) {
         console.warn(e);
@@ -359,7 +411,6 @@
     }
 
     function detectMotion(curr, prev, threshold) {
-      // Sample every 20th pixel, use average of RGB difference
       const step = 20 * 4;
       let sum = 0;
       let count = 0;
@@ -372,8 +423,7 @@
         count++;
       }
 
-      const avg = count ? sum / count : 0;
-      return avg > threshold;
+      return (count ? sum / count : 0) > threshold;
     }
 
     function uploadPhoto() {
