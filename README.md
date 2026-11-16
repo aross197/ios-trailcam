@@ -1,43 +1,39 @@
 # TrailCam
 
-Motion-detecting trail camera that uploads photos to [ntfy.sh](https://ntfy.sh) (or any webhook).
+Simple motion-detecting camera that uploads photos to [ntfy.sh](https://ntfy.sh).
 
-There are two versions in this repo:
+## Live Web Version
 
-## 1. Web version (recommended for quick use)
+After enabling GitHub Pages (see below), open:
 
-Open **[web/index.html](web/index.html)** in a modern mobile browser (Chrome or Safari recommended).
+**https://aross197.github.io/ios-trailcam/**
 
-Features:
-- Uses device camera (prefers rear camera)
-- Lightweight pixel-difference motion detection
-- Configurable sensitivity + cooldown
-- JPEG upload to your ntfy topic
-- Dark UI, works offline after first load
+### How to turn on GitHub Pages (required for the camera to work)
 
-### Quick start
-1. Open `web/index.html` on your phone (or host it somewhere).
-2. Replace the default ntfy URL with your private topic, e.g. `https://ntfy.sh/my-secret-trailcam-xyz`.
-3. Tap **Start Camera** and allow camera permission.
-4. Subscribe to the same topic on your other devices to receive the photos as notifications.
+1. Go to the repository: https://github.com/aross197/ios-trailcam
+2. Click **Settings** → **Pages** (left sidebar)
+3. Under "Source", choose **Deploy from a branch**
+4. Branch: `main`  /  Folder: `/ (root)`
+5. Click Save
 
-> Note: Browser versions cannot run completely headless or keep the screen off. For true unattended field use the native iOS version is better.
+Wait 30–60 seconds, then open the link above on your phone.
 
-## 2. Native iOS version
+### Using it
+1. Change the ntfy topic to something private (e.g. `https://ntfy.sh/mytrailcam-xyz123`)
+2. Tap **Start Camera** and allow permission
+3. Wave your hand in front of the camera to test
+4. Use **Test Upload** to force a photo without waiting for motion
 
-`ViewController.swift` — original AVFoundation implementation.
+The topic is saved in the browser so you don’t have to re-type it.
 
-- Pixel-based motion detection
-- Cellular-friendly JPEG upload
-- Designed for longer unattended use (keeps idle timer disabled)
+### Tips
+- Lower the threshold number = more sensitive
+- Works best in Chrome or Safari on a phone
+- The page must be served over HTTPS (GitHub Pages does this)
 
-Create a new iOS App project in Xcode, drop in the ViewController, set your ntfy URL, and add the camera usage description in Info.plist.
+## Native iOS Version
 
-## Tips
-- Use a hard-to-guess ntfy topic name.
-- Lower the motion threshold for higher sensitivity (more false positives).
-- Increase cooldown if an animal stays in frame.
-- Lighting changes and moving vegetation will trigger the detector — experiment with the threshold outdoors.
+`ViewController.swift` contains the original AVFoundation code for a real iOS app (better for long unattended use).
 
 ## License
 MIT

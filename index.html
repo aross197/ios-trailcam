@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>TrailCam</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --fg: #e8e8e8;
+      --accent: #4ade80;
+      --danger: #f87171;
+      --muted: #777;
+      --card: #141414;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px;
+      padding-bottom: 24px;
+      overflow-x: hidden;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 650;
+      margin: 4px 0 6px;
+      letter-spacing: -0.03em;
+    }
+    #status {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+      min-height: 1.25em;
+      text-align: center;
+    }
+    #status.active { color: var(--accent); }
+    #status.alert { color: var(--danger); }
+
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      aspect-ratio: 3/4;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #111;
+    }
+    canvas { display: none; }
+
+    .controls {
+      width: 100%;
+      max-width: 480px;
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 3px;
+    }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--fg);
+      font-size: 0.95rem;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+    .row > div { flex: 1; }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    button {
+      flex: 1;
+      padding: 13px 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.15s;
+    }
+    button:active { transform: scale(0.97); opacity: 0.9; }
+    #startBtn {
+      background: var(--accent);
+      color: #052e16;
+    }
+    #startBtn.running {
+      background: var(--danger);
+      color: #fff;
+    }
+    #testBtn {
+      background: #2a2a2a;
+      color: var(--fg);
+    }
+
+    #log {
+      width: 100%;
+      max-width: 480px;
+      margin-top: 14px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      max-height: 110px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1.45;
+    }
+    #log div { margin-bottom: 3px; }
+
+    .hint {
+      font-size: 0.72rem;
+      color: #555;
+      margin-top: 12px;
+      text-align: center;
+      max-width: 480px;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <h1>TrailCam</h1>
+  <div id="status">Ready — press Start Camera</div>
+
+  <div class="video-wrap">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label for="topic">ntfy topic URL</label>
+      <input type="text" id="topic" placeholder="https://ntfy.sh/your-private-topic" />
+    </div>
+    <div class="row">
+      <div>
+        <label for="threshold">Sensitivity threshold</label>
+        <input type="number" id="threshold" value="18" min="5" max="60" step="1" />
+      </div>
+      <div>
+        <label for="cooldown">Cooldown (sec)</label>
+        <input type="number" id="cooldown" value="6" min="2" max="60" step="1" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="startBtn">Start Camera</button>
+      <button id="testBtn">Test Upload</button>
+    </div>
+  </div>
+
+  <div id="log"></div>
+  <p class="hint">
+    Must be opened via HTTPS (GitHub Pages works). Allow camera access.<br>
+    Lower threshold = more sensitive. Use a private ntfy topic.
+  </p>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const testBtn = document.getElementById('testBtn');
+    const logEl = document.getElementById('log');
+    const topicInput = document.getElementById('topic');
+    const thresholdInput = document.getElementById('threshold');
+    const cooldownInput = document.getElementById('cooldown');
+
+    // Restore saved topic
+    const savedTopic = localStorage.getItem('trailcam-topic');
+    if (savedTopic) topicInput.value = savedTopic;
+    else topicInput.value = 'https://ntfy.sh/your_unique_trailcam_topic_here';
+
+    topicInput.addEventListener('change', () => {
+      localStorage.setItem('trailcam-topic', topicInput.value.trim());
+    });
+
+    let stream = null;
+    let running = false;
+    let lastSampleTime = 0;
+    let lastTriggerTime = 0;
+    let previousData = null;
+    let animId = null;
+    let wakeLock = null;
+
+    function log(msg) {
+      const t = new Date().toLocaleTimeString();
+      const d = document.createElement('div');
+      d.textContent = `[${t}] ${msg}`;
+      logEl.prepend(d);
+      while (logEl.children.length > 40) logEl.lastChild.remove();
+    }
+
+    function setStatus(text, cls = '') {
+      statusEl.textContent = text;
+      statusEl.className = cls;
+    }
+
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator && running) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch (e) {}
+    }
+
+    async function startCamera() {
+      if (running) {
+        stopCamera();
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus('Camera not supported in this browser', 'alert');
+        log('getUserMedia not available');
+        return;
+      }
+
+      // Secure context check
+      if (!window.isSecureContext) {
+        setStatus('Must be HTTPS (or localhost)', 'alert');
+        log('Camera requires a secure context (HTTPS)');
+        return;
+      }
+
+      try {
+        const constraints = {
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        await video.play();
+
+        // Wait for real dimensions
+        await new Promise(resolve => {
+          if (video.videoWidth > 0) resolve();
+          else video.onloadedmetadata = resolve;
+        });
+
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+
+        running = true;
+        startBtn.textContent = 'Stop';
+        startBtn.classList.add('running');
+        setStatus('Watching for motion…', 'active');
+        log(`Camera started (${canvas.width}×${canvas.height})`);
+        requestWakeLock();
+        lastSampleTime = 0;
+        previousData = null;
+        processFrame();
+      } catch (err) {
+        console.error(err);
+        let msg = err.message || String(err);
+        if (err.name === 'NotAllowedError') msg = 'Camera permission denied';
+        if (err.name === 'NotFoundError') msg = 'No camera found';
+        setStatus(msg, 'alert');
+        log('Camera error: ' + msg);
+      }
+    }
+
+    function stopCamera() {
+      running = false;
+      if (animId) cancelAnimationFrame(animId);
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      video.srcObject = null;
+      previousData = null;
+      startBtn.textContent = 'Start Camera';
+      startBtn.classList.remove('running');
+      setStatus('Stopped');
+      log('Stopped');
+      if (wakeLock) {
+        wakeLock.release().catch(() => {});
+        wakeLock = null;
+      }
+    }
+
+    function processFrame() {
+      if (!running) return;
+
+      const now = performance.now();
+      if (now - lastSampleTime < 900) {
+        animId = requestAnimationFrame(processFrame);
+        return;
+      }
+      lastSampleTime = now;
+
+      if (video.readyState < 2 || canvas.width === 0) {
+        animId = requestAnimationFrame(processFrame);
+        return;
+      }
+
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        if (previousData) {
+          const threshold = Number(thresholdInput.value) || 18;
+          const moved = detectMotion(data, previousData, threshold);
+
+          if (moved) {
+            const cooldownMs = (Number(cooldownInput.value) || 6) * 1000;
+            if (now - lastTriggerTime > cooldownMs) {
+              lastTriggerTime = now;
+              log('Motion detected');
+              setStatus('Motion! Uploading…', 'alert');
+              uploadPhoto();
+            }
+          }
+        }
+
+        // Store a copy of the pixel data
+        previousData = new Uint8ClampedArray(data);
+      } catch (e) {
+        console.warn(e);
+      }
+
+      animId = requestAnimationFrame(processFrame);
+    }
+
+    function detectMotion(curr, prev, threshold) {
+      // Sample every 20th pixel, use average of RGB difference
+      const step = 20 * 4;
+      let sum = 0;
+      let count = 0;
+
+      for (let i = 0; i < curr.length; i += step) {
+        const dr = Math.abs(curr[i] - prev[i]);
+        const dg = Math.abs(curr[i + 1] - prev[i + 1]);
+        const db = Math.abs(curr[i + 2] - prev[i + 2]);
+        sum += (dr + dg + db) / 3;
+        count++;
+      }
+
+      const avg = count ? sum / count : 0;
+      return avg > threshold;
+    }
+
+    function uploadPhoto() {
+      const topic = topicInput.value.trim();
+      if (!topic || topic.includes('your_unique') || topic.includes('your-private')) {
+        log('Set a real ntfy topic first');
+        setStatus('Set a real ntfy topic URL', 'alert');
+        return;
+      }
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          log('Could not create image');
+          return;
+        }
+
+        try {
+          const res = await fetch(topic, {
+            method: 'POST',
+            headers: {
+              'Title': 'TrailCam',
+              'Content-Type': 'image/jpeg',
+              'Priority': '4'
+            },
+            body: blob
+          });
+
+          if (res.ok) {
+            log('Upload OK');
+            setStatus('Uploaded — watching again', 'active');
+          } else {
+            log(`Upload failed (${res.status})`);
+            setStatus('Upload failed', 'alert');
+          }
+        } catch (err) {
+          log('Network error: ' + err.message);
+          setStatus('Upload error', 'alert');
+        }
+      }, 'image/jpeg', 0.65);
+    }
+
+    startBtn.addEventListener('click', startCamera);
+    testBtn.addEventListener('click', () => {
+      if (!running) {
+        setStatus('Start the camera first', 'alert');
+        return;
+      }
+      log('Manual test upload');
+      uploadPhoto();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && running) {
+        requestWakeLock();
+      }
+    });
+  </script>
+</body>
+</html>
