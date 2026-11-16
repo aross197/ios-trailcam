@@ -11,6 +11,7 @@ class ViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVCapture
     
     // Motion detection variables
     var lastSampleTime: Date = .distantPast
+    var lastTriggerTime: Date = .distantPast
     var previousBuffer: CVPixelBuffer?
     let motionThreshold: CGFloat = 25.0 // Adjust sensitivity (lower = more sensitive)
     let cooldownSeconds: TimeInterval = 5.0 // Time between triggers to save data
@@ -44,9 +45,15 @@ class ViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVCapture
             videoDataOutput = AVCaptureVideoDataOutput()
             videoDataOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
             
-            if captureSession.canAddInput(input) { captureSession.addInput(input) }
-            if captureSession.canAddOutput(stillImageOutput) { captureSession.addOutput(stillImageOutput) }
-            if captureSession.canAddOutput(videoDataOutput) { captureSession.canAddOutput(videoDataOutput) }
+            if captureSession.canAddInput(input) {
+                captureSession.addInput(input)
+            }
+            if captureSession.canAddOutput(stillImageOutput) {
+                captureSession.addOutput(stillImageOutput)
+            }
+            if captureSession.canAddOutput(videoDataOutput) {
+                captureSession.addOutput(videoDataOutput)
+            }
             
             videoDataOutput.setSampleBufferDelegate(self, queue: sessionQueue)
             
@@ -64,10 +71,10 @@ class ViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVCapture
         
         // Throttle check frequency to once per second to save CPU/battery
         guard Date().timeIntervalSince(lastSampleTime) > 1.0 else { return }
+        lastSampleTime = Date()
         
         if let prev = previousBuffer {
             if detectMotion(current: pixelBuffer, previous: prev) {
-                lastSampleTime = Date()
                 print("Motion detected! Triggering snapshot...")
                 triggerCapture()
             }
@@ -117,7 +124,8 @@ class ViewController: UIViewController, AVCapturePhotoCaptureDelegate, AVCapture
 
     func triggerCapture() {
         // Enforce cooldown so we don't spam uploads if an animal lingers
-        guard Date().timeIntervalSince(lastSampleTime) > cooldownSeconds else { return }
+        guard Date().timeIntervalSince(lastTriggerTime) > cooldownSeconds else { return }
+        lastTriggerTime = Date()
         
         let settings = AVCapturePhotoSettings()
         stillImageOutput.capturePhoto(with: settings, delegate: self)
